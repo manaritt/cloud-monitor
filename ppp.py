@@ -1,88 +1,78 @@
-from datetime import datetime
-import pandas as pd
-import psutil
-import streamlit as st
 import time
+import json
+import urllib.request
+import psutil
 
-# إعدادات الصفحة
-st.set_page_config(
-    page_title="Single-Node Infrastructure Monitor", layout="wide"
-)
+# -------------------------------------------------------------
+# Configuration (سيرفر سحابي مجاني ومباشر)
+# -------------------------------------------------------------
+CLOUD_URL = "https://httpbin.org/post"
+HEADERS = {
+    "Content-Type": "application/json"
+}
 
-st.title("🖥️ Real-Time Single-Node Server Monitor")
-st.write(
-    "نظام مراقبة السيرفر المباشر بالوقت الفعلي (Real-time Telemetry Stream)"
-)
 
-# ---------------------------------------------------------
-# الشريط الجانبي (Sidebar)
-# ---------------------------------------------------------
-st.sidebar.header("🕹️ لوحة التحكم بالمراقبة")
-refresh_rate = st.sidebar.slider("سرعة تحديث البيانات (بالثواني):", 1, 10, 2)
+def get_system_metrics():
+    """تجميع بيانات النظام المحلية"""
+    cpu_usage = psutil.cpu_percent(interval=1)
+    ram_usage = psutil.virtual_memory().percent
+    disk_usage = psutil.disk_usage('/').percent
 
-# زر المحاكاة بديل التليجرام لاختبار التنبيهات
-sim_stress = st.sidebar.button("🚨 اختبر التنبيه (محاكاة ضغط عالي)")
+    return {
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "cpu_percent": cpu_usage,
+        "ram_percent": ram_usage,
+        "disk_percent": disk_usage
+    }
 
-# ---------------------------------------------------------
-# قراءة بيانات السيرفر الحقيقية عبر psutil
-# ---------------------------------------------------------
-cpu = psutil.cpu_percent(interval=1)
-ram = psutil.virtual_memory().percent
-disk = psutil.disk_usage("/").percent
 
-# في حال ضغط زر المحاكاة، نرفع القراءات لتجربة الإنذار
-if sim_stress:
-  cpu = 94.5
-  ram = 89.0
+def send_to_cloud(data):
+    """إرسال البيانات إلى السحابة عبر HTTP POST Request"""
+    try:
+        json_data = json.dumps(data).encode('utf-8')
+        req = urllib.request.Request(CLOUD_URL, data=json_data, headers=HEADERS, method='POST')
 
-# ---------------------------------------------------------
-# عرض المؤشرات الثلاثة
-# ---------------------------------------------------------
-col1, col2, col3 = st.columns(3)
-col1.metric("CPU Load", f"{cpu}%")
-col2.metric("RAM Usage", f"{ram}%")
-col3.metric("Disk Storage", f"{disk}%")
+        with urllib.request.urlopen(req) as response:
+            res_body = response.read().decode('utf-8')
+            res_json = json.loads(res_body)
+            # إرجاع تأكيد الاستلام من السيرفر السحابي
+            return "SUCCESS-200"
+    except Exception as e:
+        print(f"[Error] فشل الاتصال بالسحاب: {e}")
+        return None
 
-# ---------------------------------------------------------
-# نظام التنبيهات التلقائي (Auto Alerts)
-# ---------------------------------------------------------
-st.divider()
-st.subheader("🔔 حالة السيرفر المباشرة")
 
-if cpu > 80 or ram > 80:
-  st.error(
-      "🚨 خطر عالي: استهلاك الموارد تجاوز حد الأمان! (High Resource Load Detected)"
-  )
-elif cpu > 60 or ram > 60:
-  st.warning(
-      "⚠️ تحذير: يوجد ضغط متوسط على السيرفر (Moderate Resource Stress)."
-  )
-else:
-  st.success("✅ السيرفر يعمل بحالة ممتازة وبدون أي مشاكل (Optimal State).")
+def main():
+    print("==================================================")
+    print("   بدء تشغيل نظام مراقبة الأجهزة المربوط بالكلاود   ")
+    print("==================================================")
+    print("جاري جمع البيانات ورفعها كل 5 ثوانٍ...\n")
 
-# ---------------------------------------------------------
-# تصدير التقرير CSV
-# ---------------------------------------------------------
-st.divider()
-st.subheader("📊 تصدير البيانات (CSV Log Export)")
+    try:
+        while True:
+            # 1. جمع البيانات من الجهاز
+            metrics = get_system_metrics()
 
-data_log = pd.DataFrame([{
-    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    "CPU_Percent": cpu,
-    "RAM_Percent": ram,
-    "Disk_Percent": disk,
-    "Status": (
-        "High Load"
-        if cpu > 80 or ram > 80
-        else ("Warning" if cpu > 60 or ram > 60 else "Normal")
-    ),
-}])
+            print(f"[{metrics['timestamp']}]")
+            print(f" ├─ استهلاك المعالج (CPU): {metrics['cpu_percent']}%")
+            print(f" ├─ استهلاك الذاكرة (RAM): {metrics['ram_percent']}%")
+            print(f" └─ استهلاك القرص (Disk): {metrics['disk_percent']}%")
 
-csv_data = data_log.to_csv(index=False).encode("utf-8")
+            # تنبيه محلي في حال ارتفاع الاستهلاك
+            if metrics['cpu_percent'] > 80:
+                print(" ⚠️  [تنبيه]: استهلاك المعالج مرتفع جداً!")
 
-st.download_button(
-    label="📥 تنزيل تقرير السيرفر (CSV)",
-    data=csv_data,
-    file_name="single_server_telemetry_log.csv",
-    mime="text/csv",
-)
+            # 2. رفع البيانات للكلاود
+            cloud_status = send_to_cloud(metrics)
+            if cloud_status:
+                print(f" ☁️  تم الرفع بنجاح للسحاب! (Cloud Status: {cloud_status})")
+
+            print("-" * 50)
+            time.sleep(5)
+
+    except KeyboardInterrupt:
+        print("\nتم إيقاف البرنامج بنجاح.")
+
+
+if name == "main":
+    main()
