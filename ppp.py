@@ -1,5 +1,4 @@
-
-              import time
+import time
 import json
 import urllib.request
 import psutil
